@@ -1,46 +1,56 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from pathlib import Path
-import shutil
+import os
 import uuid
+from pathlib import Path
 
-app = FastAPI(title="Seaweed Detection API")
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
+from inference import analyze_for_api
+
+app = FastAPI(title="Seaweed Health Analyzer API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten later
+    allow_origins=["*"],  # tighten this later for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 
 @app.get("/")
 def root():
-    return {"message": "Seaweed Detection API is running"}
+    return {
+        "message": "Seaweed Health Analyzer API is running",
+        "status": "ok",
+    }
+
 
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
-    temp_name = f"{uuid.uuid4().hex}_{file.filename}"
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image.")
+
+    suffix = Path(file.filename).suffix if file.filename else ".jpg"
+    temp_name = f"{uuid.uuid4().hex}{suffix}"
     temp_path = UPLOAD_DIR / temp_name
 
-    with temp_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    try:
+        contents = await file.read()
+        temp_path.write_bytes(contents)
 
-    # TODO:
-    # 1. load image
-    # 2. run segmentation
-    # 3. run ConvNeXt-Tiny prediction
-    # 4. generate Grad-CAM
-    # 5. generate DeepSeek explanation
-    # 6. return JSON result
+        result = analyze_for_api(str(temp_path))
+        return result
 
-    return {
-        "prediction": "unhealthy",
-        "confidence": 0.548,
-        "healthy_probability": 0.452,
-        "unhealthy_probability": 0.548,
-        "explanation": "Placeholder response from backend."
-    }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+    finally:
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except Exception:
+            pass
