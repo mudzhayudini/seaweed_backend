@@ -1,9 +1,10 @@
 fastapi
 uvicorn
 python-multipart
-torch
-torchvision
 numpy
 pillow
 opencv-python-headless
 requests
+huggingface-hub
+torch==2.5.1
+torchvision==0.20.1
