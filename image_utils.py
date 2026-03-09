@@ -5,8 +5,24 @@ import numpy as np
 from PIL import Image
 
 
-def segment_and_crop_seaweed(pil_img: Image.Image, padding: int = 10):
-    img = np.array(pil_img.convert("RGB"))
+def segment_and_crop_seaweed(pil_img: Image.Image, padding: int = 10, max_side: int = 1024):
+    """
+    Resize large images before GrabCut, then crop tightly around seaweed.
+    This makes camera images much faster to process.
+    """
+    pil_img = pil_img.convert("RGB")
+
+    # Resize large images first
+    w0, h0 = pil_img.size
+    longest_side = max(w0, h0)
+
+    if longest_side > max_side:
+        scale = max_side / float(longest_side)
+        new_w = int(w0 * scale)
+        new_h = int(h0 * scale)
+        pil_img = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    img = np.array(pil_img)
     h, w = img.shape[:2]
 
     rect = (
