@@ -10,7 +10,7 @@ def call_deepseek_api(
     max_tokens: int = 350,
     retries: int = 3,
 ) -> str:
-    deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+    deepseek_api_key = "sk-6f87b76fc46142d8bdc81347a0f55525"
 
     if not deepseek_api_key:
         return "DeepSeek API is not configured on the server."
@@ -53,3 +53,4 @@ def call_deepseek_api(
             time.sleep(3)
 
     return f"DeepSeek API failed after multiple retries. Last error: {last_error}"
+
