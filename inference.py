@@ -40,6 +40,74 @@ def pil_to_base64_png(img: Image.Image) -> str:
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
+def summarize_visual_features(pil_img):
+    """
+    Simple visual summary derived from the uploaded image.
+    This gives DeepSeek more evidence about the image itself.
+    """
+    img = np.array(pil_img.convert("RGB")).astype(np.float32)
+
+    # Basic brightness
+    brightness = float(img.mean() / 255.0)
+
+    # Channel means
+    r_mean = float(img[:, :, 0].mean() / 255.0)
+    g_mean = float(img[:, :, 1].mean() / 255.0)
+    b_mean = float(img[:, :, 2].mean() / 255.0)
+
+    # Rough color interpretation
+    if g_mean > r_mean and g_mean > b_mean:
+        dominant_color = "green-dominant"
+    elif r_mean > g_mean and r_mean > b_mean:
+        dominant_color = "red/brown-dominant"
+    elif b_mean > r_mean and b_mean > g_mean:
+        dominant_color = "blue-dominant"
+    else:
+        dominant_color = "mixed"
+
+    # Contrast / variation
+    contrast = float(img.std() / 255.0)
+
+    # Texture roughness proxy
+    gray = img.mean(axis=2)
+    texture_variation = float(gray.std() / 255.0)
+
+    # Coarse interpretation
+    if brightness < 0.25:
+        brightness_desc = "dark"
+    elif brightness < 0.55:
+        brightness_desc = "moderately bright"
+    else:
+        brightness_desc = "bright"
+
+    if contrast < 0.12:
+        contrast_desc = "low contrast"
+    elif contrast < 0.22:
+        contrast_desc = "moderate contrast"
+    else:
+        contrast_desc = "high contrast"
+
+    if texture_variation < 0.10:
+        texture_desc = "visually smooth"
+    elif texture_variation < 0.20:
+        texture_desc = "moderately varied"
+    else:
+        texture_desc = "highly varied or irregular"
+
+    return {
+        "brightness": round(brightness, 4),
+        "brightness_description": brightness_desc,
+        "dominant_color": dominant_color,
+        "channel_means": {
+            "red": round(r_mean, 4),
+            "green": round(g_mean, 4),
+            "blue": round(b_mean, 4),
+        },
+        "contrast": round(contrast, 4),
+        "contrast_description": contrast_desc,
+        "texture_variation": round(texture_variation, 4),
+        "texture_description": texture_desc,
+    }
 
 def analyze_seaweed_with_best_model(
     image_path,
@@ -202,4 +270,5 @@ def analyze_for_api(image_path: str) -> Dict[str, Any]:
         "cropped_image_base64": pil_to_base64_png(result["cropped_pil"]),
         "overlay_image_base64": numpy_rgb_to_base64_png(result["overlay_np"]),
         "heatmap_image_base64": numpy_rgb_to_base64_png(result["heatmap_np"]),
+
     }
