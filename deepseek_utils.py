@@ -3,9 +3,6 @@ import time
 import requests
 
 
-DEEPSEEK_API_KEY = os.getenv("sk-6f87b76fc46142d8bdc81347a0f55525")
-
-
 def call_deepseek_api(
     prompt: str,
     system_message: str,
@@ -13,13 +10,15 @@ def call_deepseek_api(
     max_tokens: int = 350,
     retries: int = 3,
 ) -> str:
-    if not DEEPSEEK_API_KEY:
-        return "DeepSeek API key is not configured on the server."
+    deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+
+    if not deepseek_api_key:
+        return "DeepSeek API is not configured on the server."
 
     url = "https://api.deepseek.com/chat/completions"
 
     headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Authorization": f"Bearer {deepseek_api_key}",
         "Content-Type": "application/json",
     }
 
