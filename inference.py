@@ -150,6 +150,7 @@ def analyze_seaweed_with_best_model(
     gradcam_summary = summarize_gradcam(cam_resized, threshold=gradcam_threshold)
 
     img_np = np.array(pil_img)
+    visual_summary = summarize_visual_features(pil_img)
     image_summary = {
         "file_name": image_path.name,
         "image_size_pixels": {
@@ -173,6 +174,7 @@ def analyze_seaweed_with_best_model(
         },
         "gradcam_summary": gradcam_summary,
         "image_summary": image_summary,
+        "visual_summary": visual_summary,
         "overlay_np": overlay,
         "heatmap_np": heatmap,
         "cam_np": cam_resized,
@@ -180,32 +182,43 @@ def analyze_seaweed_with_best_model(
     }
 
 
-def generate_deepseek_explanation_from_result(result: Dict[str, Any]) -> str:
+def generate_deepseek_explanation_from_result(result):
+    """
+    Uses the exact already-computed model result.
+    This guarantees the explanation matches the displayed prediction,
+    while also using Grad-CAM and image-derived visual cues.
+    """
     pred_class = result["predicted_class"]
     confidence = result["confidence"]
     probs = result["probabilities"]
     gradcam_summary = result["gradcam_summary"]
     image_summary = result["image_summary"]
+    visual_summary = result.get("visual_summary", {})
     true_label = result.get("true_label", None)
     model_name = result["model_name"]
 
     confidence_pct = confidence * 100
     healthy_pct = probs["healthy"] * 100
     unhealthy_pct = probs["unhealthy"] * 100
+
+    # Borderline case if probabilities are close
     is_uncertain = abs(probs["healthy"] - probs["unhealthy"]) < 0.15
 
     system_message = (
         "You are an expert marine-biology assistant for seaweed health assessment. "
-        "You must strictly follow the model result provided by the user. "
-        "Do not change the predicted class or confidence. "
-        "Start by explicitly restating the exact model prediction and confidence. "
-        "If the confidence is modest or the probabilities are close, explain that the model is uncertain. "
-        "If the visual evidence might appear mixed, explain that the model prediction and human visual impression may not fully align. "
-        "Write only 3 to 5 sentences."
+        "You must strictly follow the exact model prediction and confidence provided. "
+        "Do not change the predicted class. "
+        "Your explanation must do four things: "
+        "(1) first restate the exact classification and confidence from the model, "
+        "(2) justify that prediction using the Grad-CAM attention summary and the image-derived visual summary, "
+        "(3) explain in short scientific language why the seaweed may be healthy or unhealthy, "
+        "(4) if the visual evidence appears mixed or seems to suggest the opposite class, explicitly mention that the visual impression may partially contradict the model and explain that the model may be relying on subtle features or a borderline decision. "
+        "Write 4 to 6 sentences only. "
+        "Be cautious, specific, and consistent with the provided evidence."
     )
 
     prompt_payload = {
-        "task": "Explain the seaweed prediction while strictly matching the exact model output.",
+        "task": "Explain and justify the seaweed classification based on model output, Grad-CAM attention, and image-derived visual cues.",
         "best_model": model_name,
         "prediction": {
             "predicted_class": pred_class,
@@ -215,14 +228,17 @@ def generate_deepseek_explanation_from_result(result: Dict[str, Any]) -> str:
         },
         "uncertainty_flag": is_uncertain,
         "image_summary": image_summary,
+        "visual_summary": visual_summary,
         "gradcam_summary": gradcam_summary,
         "true_label_if_known": true_label,
         "instruction": (
             f"The model prediction is EXACTLY '{pred_class}' at {confidence_pct:.2f}% confidence. "
             "Your first sentence must repeat that exact result. "
-            "If the probabilities are close, mention that the classification is borderline or uncertain. "
-            "If the image may visually seem to suggest the opposite class, acknowledge that possibility and say the model may be responding to subtle features or limited confidence. "
-            "Do not invent a different predicted class."
+            "Then explain why this result is plausible using the visual summary and the Grad-CAM attention region. "
+            "If the attention region supports the model, say so clearly. "
+            "If the image-derived visual cues seem mixed, borderline, or partially opposite to the model class, explicitly mention that possible contradiction and explain that the model may be responding to subtle or localized features. "
+            "Do not invent a different class prediction. "
+            "Do not say the model predicted the opposite class."
         ),
     }
 
@@ -230,19 +246,21 @@ def generate_deepseek_explanation_from_result(result: Dict[str, Any]) -> str:
         prompt=json.dumps(prompt_payload, indent=2),
         system_message=system_message,
         temperature=0.1,
-        max_tokens=220,
+        max_tokens=260
     )
 
+    # Safety correction if the LLM still contradicts the model
     lower_exp = explanation.lower()
+
     if pred_class == "healthy" and "predicted 'unhealthy'" in lower_exp:
         explanation = (
             f"The model predicted 'healthy' with {confidence_pct:.2f}% confidence. "
-            f"The generated explanation below appeared inconsistent, so this corrected statement is being applied.\n\n{explanation}"
+            f"The explanation below contained an inconsistency, so this correction is applied first.\n\n{explanation}"
         )
     elif pred_class == "unhealthy" and "predicted 'healthy'" in lower_exp:
         explanation = (
             f"The model predicted 'unhealthy' with {confidence_pct:.2f}% confidence. "
-            f"The generated explanation below appeared inconsistent, so this corrected statement is being applied.\n\n{explanation}"
+            f"The explanation below contained an inconsistency, so this correction is applied first.\n\n{explanation}"
         )
 
     return explanation
@@ -272,3 +290,4 @@ def analyze_for_api(image_path: str) -> Dict[str, Any]:
         "heatmap_image_base64": numpy_rgb_to_base64_png(result["heatmap_np"]),
 
     }
+
